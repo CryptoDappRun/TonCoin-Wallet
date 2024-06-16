@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ton Coin Wallet-Send Ton with Paper Wallet</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tonweb/dist/tonweb.min.js"></script>
+     <style>
+        .hidden {
+            display: none;
+        }
+        .spinner-border {
+            width: 1rem;
+            height: 1rem;
+            border-width: 0.2em;
+        }
+        .spinner-hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Ton Coin Wallet</h1>
+        <a target="_blank"  href="https://cryptodapprun.github.io/Cryptocurrency-Paper-Wallet-Generator/"> Generate Wallet </a><br><br>
+        <div class="mb-3">
+            <input type="password" id="privateKeyInput" class="form-control" placeholder="Enter Private Key (Hex)">
+            
+<div id="BalanceID"></div>
+            <div class="form-check form-switch mt-2">
+                <input class="form-check-input" type="checkbox" id="togglePrivateKey">
+                
+                <label class="form-check-label" for="togglePrivateKey">Show Private Key</label>
+            </div>
+        </div>
+        <div class="mb-3">
+            <input type="text" id="recipientAddressInput" class="form-control" placeholder="Enter Recipient Address">
+        </div>
+        <div class="mb-3">
+            <input type="text" id="amountInput" class="form-control" placeholder="Enter Amount to Send">
+        </div>
+        <div class="mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="transactionType" id="sendCoinsRadio" value="coins" checked>
+                <label class="form-check-label" for="sendCoinsRadio">
+                    Send TON Coins
+                </label>
+            </div>
+
+            <!--
+
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="transactionType" id="sendTokensRadio" value="tokens">
+                <label class="form-check-label" for="sendTokensRadio">
+                    Send TON Tokens
+                </label>
+            </div>
+
+            -->
+            
+        </div>
+        <div class="mb-3 hidden" id="tokenAddressDiv">
+            <input type="text" id="tokenAddressInput" class="form-control" placeholder="Enter Token Address (for token transfer)">
+        </div>
+         <button id="sendButton" class="btn btn-primary">
+            Send
+            <span id="spinner" class="spinner-border spinner-hidden" role="status" aria-hidden="true"></span>
+        </button>
+        <p id="output" class="mt-3"></p>
+    </div>
+
+    <script>
+
+
+
+           document.getElementById('privateKeyInput').addEventListener('input', async () => {
+            const privateKeyInput = document.getElementById('privateKeyInput').value.trim();
+            if (!privateKeyInput) return;
+
+            document.getElementById('BalanceID').innerText=""
+
+            try {
+              const TonWeb = window.TonWeb;
+                const nacl = TonWeb.utils.nacl;
+                const privateKey = TonWeb.utils.hexToBytes(privateKeyInput);
+                const keyPair = nacl.sign.keyPair.fromSecretKey(privateKey);
+                const publicKey = keyPair.publicKey;
+
+                const tonweb = new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/jsonRPC'));
+                const wallet = tonweb.wallet.create({ publicKey, wc: 0 });
+
+                const walletAddress = await wallet.getAddress();
+                const addressString = walletAddress.toString(true, true, false);
+
+                const balance = await tonweb.provider.getBalance(addressString);
+                const balanceTon = TonWeb.utils.fromNano(balance);
+
+                console.log("balanceTon:",balanceTon)
+                document.getElementById('BalanceID').innerText = `Address: ${addressString}\nBalance: ${balanceTon} TON`;
+            } catch (error) {
+                document.getElementById('BalanceID').innerText = `Wrone HEX key`;
+            }
+        });
+
+
+
+
+        // Toggle the private key input field between text and password
+        document.getElementById('togglePrivateKey').addEventListener('change', function() {
+            const privateKeyInput = document.getElementById('privateKeyInput');
+            if (this.checked) {
+                privateKeyInput.type = 'text';
+            } else {
+                privateKeyInput.type = 'password';
+            }
+        });
+
+        // Show or hide token address input based on selected transaction type
+        document.querySelectorAll('input[name="transactionType"]').forEach((elem) => {
+            elem.addEventListener('change', function(event) {
+                const value = event.target.value;
+                if (value === 'tokens') {
+                    document.getElementById('tokenAddressDiv').classList.remove('hidden');
+                } else {
+                    document.getElementById('tokenAddressDiv').classList.add('hidden');
+                }
+            });
+        });
+
+        // Send transaction based on the selected transaction type
+        document.getElementById('sendButton').addEventListener('click', async () => {
+            const privateKeyHex = document.getElementById('privateKeyInput').value.trim();
+            const recipientAddress = document.getElementById('recipientAddressInput').value.trim();
+            const amount = document.getElementById('amountInput').value.trim();
+            const transactionType = document.querySelector('input[name="transactionType"]:checked').value;
+
+            if (!privateKeyHex || !recipientAddress || !amount) {
+                document.getElementById('output').innerText = 'Please fill in all fields.';
+                return;
+            }
+
+
+            document.getElementById('spinner').classList.remove('spinner-hidden');
+            document.getElementById('sendButton').disabled = true;
+
+
+
+            try {
+                if (transactionType === 'coins') {
+                    await sendTonCoins(privateKeyHex, recipientAddress, amount);
+                    
+                } else {
+                    const tokenAddress = document.getElementById('tokenAddressInput').value.trim();
+                    if (!tokenAddress) {
+                        document.getElementById('output').innerText = 'Please fill in all fields.';
+                        return;
+                    }
+                    await sendTonTokens(privateKeyHex, recipientAddress, amount, tokenAddress);
+                    document.getElementById('output').innerText = 'Token transfer successful!';
+                }
+            } catch (error) {
+                document.getElementById('output').innerText = `Transaction failed: ${error.message}`;
+            } finally {
+                document.getElementById('spinner').classList.add('spinner-hidden');
+                document.getElementById('sendButton').disabled = false;
+            }
+        });
+
+        async function sendTonCoins(privateKeyHex, recipientAddress, amount) {
+            const TonWeb = window.TonWeb;
+            const nacl = TonWeb.utils.nacl;
+
+            // Convert the private key from hex to Uint8Array
+            const privateKey = TonWeb.utils.hexToBytes(privateKeyHex);
+            const keyPair = nacl.sign.keyPair.fromSecretKey(privateKey);
+            const publicKey = keyPair.publicKey;
+
+            if (!TonWeb.utils.Address.isValid(recipientAddress)) {
+            console.log("address is not valid")
+            return
+            }
+
+            var Address = new TonWeb.utils.Address(recipientAddress);
+
+            // toString arguments: isUserFriendly, isUrlSafe, isBounceable, isTestOnly
+
+            console.log(Address.toString(true, true, true, false)); // EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF
+            console.log(Address.toString(true, false, true, false)); // EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff+W72r5gqPrHF
+            console.log(Address.toString(true, true, false, false)); // UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA
+            console.log(Address.toString(true, true, true, true)); // kQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPgpP
+            console.log(Address.toString(true, true, false, true)); // 0QDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPleK
+
+            var RecipientFormatAddress=Address.toString(true, true, false, false)
+
+            console.log("RecipientFormatAddress:",RecipientFormatAddress)
+
+
+            
+
+
+            const tonweb = new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/jsonRPC'));
+            const wallet = tonweb.wallet.create({ publicKey, wc: 0 });
+
+            let seqno = await wallet.methods.seqno().call();
+            seqno = Number(seqno) || 0; // Convert seqno to number or set to 0 if not valid
+            console.log("seqno:",seqno)
+            await wallet.methods.transfer({
+                secretKey: privateKey,
+                toAddress: RecipientFormatAddress,
+                amount: TonWeb.utils.toNano(amount),
+                seqno: seqno,
+                payload: "Hello", // Optional message
+                sendMode: 3
+            }).send();
+
+
+
+            document.getElementById('output').innerText = 'Transaction successful!';
+
+
+        }
+
+
+
+
+
+
+
+        async function sendTonTokens(privateKeyHex, recipientAddress, amount, tokenAddress) {
+            const TonWeb = window.TonWeb;
+            const nacl = TonWeb.utils.nacl;
+
+            // Convert the private key from hex to Uint8Array
+            const privateKey = TonWeb.utils.hexToBytes(privateKeyHex);
+            const keyPair = nacl.sign.keyPair.fromSecretKey(privateKey);
+            const publicKey = keyPair.publicKey;
+
+            const tonweb = new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/jsonRPC'));
+
+            // Token-specific parameters
+            const amountNano = TonWeb.utils.toNano(amount);
+
+            const WalletClass = tonweb.token.Wallet;
+            const wallet = new WalletClass(tonweb.provider, { publicKey, address: tokenAddress });
+
+            let seqno = await wallet.methods.seqno().call();
+            seqno = Number(seqno) || 0; // Convert seqno to number or set to 0 if not valid
+
+            const transfer = wallet.methods.transfer({
+                secretKey: privateKey,
+                toAddress: recipientAddress,
+                amount: amountNano,
+                seqno: seqno,
+                sendMode: 3
+            });
+
+            await transfer.send();
+        }
+    </script>
+</body>
+</html>
